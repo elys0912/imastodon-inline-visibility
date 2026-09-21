@@ -4,8 +4,8 @@ imastodon.net（Mastodon 4.5+）の投稿欄で、「公開範囲と引用」ダ
 
 ## インストール
 
-1. ブラウザに [Tampermonkey](https://www.tampermonkey.net/) を入れる
-2. このリポジトリの `imastodon-inline-visibility.user.js` を開き、「Raw」ボタンを押す
+1. ブラウザに [Tampermonkey](https://www.tampermonkey.net/) を入れる（Firefox 版を想定）
+2. [imastodon-inline-visibility.user.js（Raw）](https://raw.githubusercontent.com/elys0912/imastodon-inline-visibility/main/imastodon-inline-visibility.user.js) を開く
 3. Tampermonkey のインストール画面が出るので「インストール」
 
 ## 機能
@@ -29,4 +29,6 @@ React の内部から Redux ストアを取得し、本家の公開範囲ボタ�
 
 ## ライセンス
 
-MIT
+MIT License（[LICENSE](LICENSE)）
+
+アイコンには Google の [Material Symbols](https://github.com/google/material-design-icons)（Apache License 2.0）を使用しています。詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。

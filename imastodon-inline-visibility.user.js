@@ -1,7 +1,13 @@
 // ==UserScript==
 // @name         imastodon 公開範囲・引用ワンクリック切り替え
-// @namespace    https://imastodon.net/
+// @namespace    https://github.com/elys0912
 // @version      3.0.1
+// @author       elys0912
+// @license      MIT
+// @homepageURL  https://github.com/elys0912/imastodon-inline-visibility
+// @supportURL   https://github.com/elys0912/imastodon-inline-visibility/issues
+// @downloadURL  https://raw.githubusercontent.com/elys0912/imastodon-inline-visibility/main/imastodon-inline-visibility.user.js
+// @updateURL    https://raw.githubusercontent.com/elys0912/imastodon-inline-visibility/main/imastodon-inline-visibility.user.js
 // @description  投稿欄の「公開範囲と引用」ダイアログを、ワンクリックで切り替えられるアイコンボタン列に置き換えます（Mastodon 4.5+）
 // @match        https://imastodon.net/*
 // @run-at       document-idle
@@ -12,6 +18,7 @@
   'use strict';
 
   // ---- Material Symbols（本家と同じアイコン） ----
+  // Copyright Google LLC. Apache License 2.0（LICENSES/Apache-2.0.txt, THIRD_PARTY_NOTICES.md）
   const P = {
     public: 'M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm-40-82v-78q-33 0-56.5-23.5T360-320v-40L168-552q-3 18-5.5 36t-2.5 36q0 121 79.5 212T440-162Zm276-102q41-45 62.5-100.5T800-480q0-98-54.5-179T600-776v16q0 33-23.5 56.5T520-680h-80v80q0 17-11.5 28.5T400-560h-80v80h240q17 0 28.5 11.5T600-440v120h40q26 0 47 15.5t29 40.5Z',
     quiet: 'M484-80q-84 0-157.5-32t-128-86.5Q144-253 112-326.5T80-484q0-146 93-257.5T410-880q-18 99 11 193.5T521-521q71 71 165.5 100T880-410q-26 144-138 237T484-80Zm0-80q88 0 163-44t118-121q-86-8-163-43.5T464-465q-61-61-97-138t-43-163q-77 43-120.5 118.5T160-484q0 135 94.5 229.5T484-160Zm-20-305Z',
