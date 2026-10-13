@@ -25,7 +25,7 @@ imastodon.net（Mastodon 4.5+）の投稿欄で、「公開範囲と引用」ダ
 
 ## 仕組み
 
-React の内部から Redux ストアを取得し、本家の公開範囲ボタンと同じアクション（`compose/visibility_change`、`compose/setQuotePolicy`）を直接 dispatch しています。Mastodon v4.5.0 のソースに基づいているため、サーバー側のアップデートで動かなくなる可能性があります。
+React の内部から Redux ストアを取得し、本家の公開範囲ボタンと同じアクション（`compose/visibility_change`、`compose/setQuotePolicy`）を直接 dispatch しています。Mastodon v4.5.0 のソースに基づいているため、サーバー側のアップデートで動かなくなる可能性があります。ストアの状態を読めなくなった場合は、本家の操作を妨げないよう、その場でストアの購読とページの監視をやめ、追加したボタン列を外して本家の公開範囲ボタンに戻します（ブラウザのコンソールに `[tm-vis]` の警告を出します）。再び使うにはページを再読み込みします。
 
 ## ライセンス
 
