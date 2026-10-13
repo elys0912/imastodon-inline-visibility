@@ -41,3 +41,5 @@ main への push が、そのまま全利用者への配布になる（`@updateU
 MIT License（[LICENSE](LICENSE)）
 
 アイコンには Google の [Material Symbols](https://github.com/google/material-design-icons)（Apache License 2.0）を使用しています。詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。
+
+配布する `.user.js` は、スクリプト本体（MIT）とアイコンのパスデータ（Apache-2.0）を含むため、`@license` を `MIT AND Apache-2.0` としています。
