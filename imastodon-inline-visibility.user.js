@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         imastodon 公開範囲・引用ワンクリック切り替え
 // @namespace    https://github.com/elys0912
-// @version      3.0.3
+// @version      3.0.4
 // @author       elys0912
-// @license      MIT
+// @license      MIT AND Apache-2.0
 // @homepageURL  https://github.com/elys0912/imastodon-inline-visibility
 // @supportURL   https://github.com/elys0912/imastodon-inline-visibility/issues
 // @downloadURL  https://raw.githubusercontent.com/elys0912/imastodon-inline-visibility/main/imastodon-inline-visibility.user.js
@@ -29,6 +29,12 @@
     { value: 'followers', icon: 'group', label: 'フォロワー', title: '引用：フォロワーだけが引用できる' },
     { value: 'nobody', icon: 'quoteOff', label: '自分のみ', title: '引用：他の人は引用できない' },
   ];
+
+  // node のテスト（test/）から読み込まれたときは、制限の判定だけを渡し、DOM には触れない
+  if (typeof document === 'undefined') {
+    module.exports = { VISIBILITY, QUOTE, groupStates, hasKnownValues };
+    return;
+  }
 
   // ---- Redux store を React の内部から拾う ----
   let store = null;
@@ -112,15 +118,40 @@
     const state = store.getState();
     const compose = state.compose;
     const quotedId = compose.get('quoted_status_id');
-    const privacy = compose.get('privacy') || 'public';
     return {
-      privacy,
+      privacy: compose.get('privacy') || 'public',
       quotePolicy: compose.get('quote_policy') || 'public',
       isEditing: compose.get('id') != null,
       quotedId,
       quotedVis: quotedId ? state.statuses.getIn([quotedId, 'visibility']) : null,
-      quoteLocked: privacy === 'private' || privacy === 'direct',
     };
+  }
+
+  // ---- 本家と同じ制限 ----
+  // 状態 s から、ボタン列ごとに、選択中の値（current）・選べない値（isDisabled）・列ごと選べないか（groupDisabled）を返す
+  function groupStates(s) {
+    const quoteLocked = s.privacy === 'private' || s.privacy === 'direct';
+    return {
+      vis: {
+        current: s.privacy,
+        isDisabled: (v) =>
+          (s.quotedVis === 'private' && (v === 'public' || v === 'unlisted')) || // 非公開投稿の自己引用
+          (!!s.quotedId && v === 'direct'), // 引用中のDM化は Mastodon 本体の変換処理を再現しないので不可
+        groupDisabled: s.isEditing,
+      },
+      quote: {
+        current: quoteLocked ? 'nobody' : s.quotePolicy,
+        isDisabled: () => false,
+        groupDisabled: quoteLocked,
+      },
+    };
+  }
+
+  // どちらの列も、選択中の値がボタンのどれかに当たるなら true
+  function hasKnownValues(states) {
+    const isKnownVisibility = VISIBILITY.some((item) => item.value === states.vis.current);
+    const isKnownQuote = QUOTE.some((item) => item.value === states.quote.current);
+    return isKnownVisibility && isKnownQuote;
   }
 
   // ---- ボタン列の作成 ----
@@ -172,6 +203,14 @@
       makeGroup('quote', '引用できる人', QUOTE, (v) =>
         store.dispatch({ type: 'compose/setQuotePolicy', payload: v })),
     );
+    // 状態を反映できてから本家のボタンを隠す。反映できなければ本家のボタンのままにする
+    try {
+      sync(wrap);
+    } catch (e) {
+      stop(e);
+      return;
+    }
+
     dropdowns.insertBefore(wrap, dropdowns.firstChild);
     const orig = wrap.nextElementSibling;
     if (orig && orig.matches('button.dropdown-button')) {
@@ -182,15 +221,10 @@
       }
       hiddenButtons.add(orig);
     }
-    try {
-      sync(wrap);
-    } catch (e) {
-      stop(e);
-    }
   }
 
   // ---- ストアの状態を反映 ----
-  function apply(group, current, isDisabled, groupDisabled) {
+  function apply(group, { current, isDisabled, groupDisabled }) {
     group.classList.toggle('tm-disabled', groupDisabled);
     for (const b of group.querySelectorAll('button')) {
       const v = b.dataset.value;
@@ -201,22 +235,20 @@
     }
   }
 
+  // 選択中の値がボタンのどれにも当たらない（Mastodon が公開範囲の値を足した等）ときは例外を投げる。
+  // 呼び出し側が stop し、今の公開範囲が画面から分からなくならないよう本家のボタンに戻す
   function sync(wrap, s = readState()) {
+    const states = groupStates(s);
+    if (!hasKnownValues(states)) {
+      throw new Error(`公開範囲・引用の値が想定外です（${s.privacy} / ${s.quotePolicy}）`);
+    }
+
     const visGroup = wrap.querySelector('[data-tm-kind="vis"]');
     const qGroup = wrap.querySelector('[data-tm-kind="quote"]');
-
-    apply(
-      visGroup,
-      s.privacy,
-      (v) =>
-        (s.quotedVis === 'private' && (v === 'public' || v === 'unlisted')) || // 非公開投稿の自己引用
-        (!!s.quotedId && v === 'direct'), // 引用中のDM化は Mastodon 本体の変換処理を再現しないので不可
-      s.isEditing,
-    );
+    apply(visGroup, states.vis);
     visGroup.title = s.isEditing ? '投稿後は公開範囲を変更できません' : '';
-
-    apply(qGroup, s.quoteLocked ? 'nobody' : s.quotePolicy, () => false, s.quoteLocked);
-    qGroup.title = s.quoteLocked ? 'この公開範囲では他の人は引用できません' : '';
+    apply(qGroup, states.quote);
+    qGroup.title = states.quote.groupDisabled ? 'この公開範囲では他の人は引用できません' : '';
   }
 
   // store はタイムライン更新などあらゆる action で通知してくるので、関係する値が変わった時だけ DOM を触る。
@@ -272,7 +304,8 @@
   }
 
   // ---- Material Symbols（Mastodon 本体の UI と同じアイコン） ----
-  // Copyright Google LLC. Apache License 2.0（LICENSES/Apache-2.0.txt, THIRD_PARTY_NOTICES.md）
+  // Copyright Google LLC. Licensed under the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+  // 全文と利用箇所はリポジトリの LICENSES/Apache-2.0.txt と THIRD_PARTY_NOTICES.md（https://github.com/elys0912/imastodon-inline-visibility）
   // #region ICON_PATHS
   const ICON_PATHS = {
     public: 'M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm-40-82v-78q-33 0-56.5-23.5T360-320v-40L168-552q-3 18-5.5 36t-2.5 36q0 121 79.5 212T440-162Zm276-102q41-45 62.5-100.5T800-480q0-98-54.5-179T600-776v16q0 33-23.5 56.5T520-680h-80v80q0 17-11.5 28.5T400-560h-80v80h240q17 0 28.5 11.5T600-440v120h40q26 0 47 15.5t29 40.5Z',
