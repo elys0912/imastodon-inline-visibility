@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         imastodon 公開範囲・引用ワンクリック切り替え
 // @namespace    https://github.com/elys0912
-// @version      3.0.2
+// @version      3.0.3
 // @author       elys0912
 // @license      MIT
 // @homepageURL  https://github.com/elys0912/imastodon-inline-visibility
@@ -32,7 +32,13 @@
 
   // ---- Redux store を React の内部から拾う ----
   let store = null;
+  let unsubscribe = null;
+  // 状態を読めなくなったら true（以後は何もせず、本家のボタンに任せる）
+  let stopped = false;
+  // inject で隠した本家のボタン。stop で位置関係に頼らずに戻すため記録する
+  const hiddenButtons = new Set();
   function findStore(el) {
+    if (stopped) return null;
     if (store) return store;
     const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
     let fiber = key ? el[key] : null;
@@ -40,7 +46,7 @@
       const s = fiber.memoizedProps && fiber.memoizedProps.store;
       if (s && typeof s.dispatch === 'function' && typeof s.getState === 'function') {
         store = s;
-        store.subscribe(syncAll);
+        unsubscribe = store.subscribe(syncAll);
         return store;
       }
       fiber = fiber.return;
@@ -168,8 +174,19 @@
     );
     dropdowns.insertBefore(wrap, dropdowns.firstChild);
     const orig = wrap.nextElementSibling;
-    if (orig && orig.matches('button.dropdown-button')) orig.style.setProperty('display', 'none', 'important');
-    sync(wrap);
+    if (orig && orig.matches('button.dropdown-button')) {
+      orig.style.setProperty('display', 'none', 'important');
+      // 投稿欄ごと消えたボタンは戻す必要がないので、記録から外す
+      for (const button of hiddenButtons) {
+        if (!button.isConnected) hiddenButtons.delete(button);
+      }
+      hiddenButtons.add(orig);
+    }
+    try {
+      sync(wrap);
+    } catch (e) {
+      stop(e);
+    }
   }
 
   // ---- ストアの状態を反映 ----
@@ -202,14 +219,56 @@
     qGroup.title = s.quoteLocked ? 'この公開範囲では他の人は引用できません' : '';
   }
 
-  // store はタイムライン更新などあらゆる action で通知してくるので、関係する値が変わった時だけ DOM を触る
+  // store はタイムライン更新などあらゆる action で通知してくるので、関係する値が変わった時だけ DOM を触る。
+  // 購読者の例外は dispatch の呼び出し元（本家の投稿・タイムライン更新など）へ投げられるので、ここで止める
   let lastKey = null;
   function syncAll() {
-    const s = readState();
-    const key = [s.privacy, s.quotePolicy, s.isEditing, s.quotedId, s.quotedVis].join('|');
-    if (key === lastKey) return;
-    lastKey = key;
-    document.querySelectorAll('.tm-vis-wrap').forEach((wrap) => sync(wrap, s));
+    try {
+      const s = readState();
+      const key = [s.privacy, s.quotePolicy, s.isEditing, s.quotedId, s.quotedVis].join('|');
+      if (key === lastKey) return;
+      lastKey = key;
+      document.querySelectorAll('.tm-vis-wrap').forEach((wrap) => sync(wrap, s));
+    } catch (e) {
+      stop(e);
+    }
+  }
+
+  // Mastodon の更新で状態の形が変わった等で読めなくなったら、本家のボタンを戻して追加した UI を外し、監視と購読をやめる。
+  // stop は購読者の catch から呼ばれるので、ここから例外を出すと dispatch の呼び出し元へ漏れる。
+  // 手順ごとに例外を捕まえ、1 つが失敗しても残りを続ける。本家の操作に直結する DOM の復元を最初に行う
+  function stop(error) {
+    if (stopped) return;
+    stopped = true;
+    tryStep('警告の出力', () => console.warn('[tm-vis] 投稿欄の状態を読めないため停止し、本家のボタンに戻します', error));
+    for (const button of hiddenButtons) {
+      tryStep('本家のボタンの復元', () => button.style.removeProperty('display'));
+    }
+    hiddenButtons.clear();
+    tryStep('ボタン列の取得', () => {
+      for (const wrap of document.querySelectorAll('.tm-vis-wrap')) {
+        tryStep('ボタン列の撤去', () => wrap.remove());
+      }
+    });
+    tryStep('監視の停止', () => observer.disconnect());
+    tryStep('購読の解除', () => {
+      const unsubscribeStore = unsubscribe;
+      unsubscribe = null;
+      if (typeof unsubscribeStore === 'function') unsubscribeStore();
+    });
+  }
+
+  // stop の 1 手順を実行する。例外は外へ出さない（警告の出力が失敗しても握りつぶす）
+  function tryStep(name, step) {
+    try {
+      step();
+    } catch (e) {
+      try {
+        console.warn(`[tm-vis] 停止処理（${name}）に失敗しました`, e);
+      } catch {
+        // 警告も出せないときは何もしない
+      }
+    }
   }
 
   // ---- Material Symbols（Mastodon 本体の UI と同じアイコン） ----
@@ -235,13 +294,14 @@
   }
   // 変更が連続しても 1 フレームに 1 回だけ走査する
   let scanQueued = false;
-  new MutationObserver(() => {
+  const observer = new MutationObserver(() => {
     if (scanQueued) return;
     scanQueued = true;
     requestAnimationFrame(() => {
       scanQueued = false;
-      scan();
+      if (!stopped) scan();
     });
-  }).observe(document.body, { childList: true, subtree: true });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
   scan();
 })();
