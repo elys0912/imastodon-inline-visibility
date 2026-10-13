@@ -35,6 +35,8 @@
   let unsubscribe = null;
   // 状態を読めなくなったら true（以後は何もせず、本家のボタンに任せる）
   let stopped = false;
+  // inject で隠した本家のボタン。stop で位置関係に頼らずに戻すため記録する
+  const hiddenButtons = new Set();
   function findStore(el) {
     if (stopped) return null;
     if (store) return store;
@@ -172,7 +174,14 @@
     );
     dropdowns.insertBefore(wrap, dropdowns.firstChild);
     const orig = wrap.nextElementSibling;
-    if (orig && orig.matches('button.dropdown-button')) orig.style.setProperty('display', 'none', 'important');
+    if (orig && orig.matches('button.dropdown-button')) {
+      orig.style.setProperty('display', 'none', 'important');
+      // 投稿欄ごと消えたボタンは戻す必要がないので、記録から外す
+      for (const button of hiddenButtons) {
+        if (!button.isConnected) hiddenButtons.delete(button);
+      }
+      hiddenButtons.add(orig);
+    }
     try {
       sync(wrap);
     } catch (e) {
@@ -225,19 +234,41 @@
     }
   }
 
-  // Mastodon の更新で状態の形が変わった等で読めなくなったら、購読と監視をやめ、追加した UI を外して本家のボタンを戻す
+  // Mastodon の更新で状態の形が変わった等で読めなくなったら、本家のボタンを戻して追加した UI を外し、監視と購読をやめる。
+  // stop は購読者の catch から呼ばれるので、ここから例外を出すと dispatch の呼び出し元へ漏れる。
+  // 手順ごとに例外を捕まえ、1 つが失敗しても残りを続ける。本家の操作に直結する DOM の復元を最初に行う
   function stop(error) {
     if (stopped) return;
     stopped = true;
-    console.warn('[tm-vis] 投稿欄の状態を読めないため停止し、本家のボタンに戻します', error);
-    if (typeof unsubscribe === 'function') unsubscribe();
-    unsubscribe = null;
-    observer.disconnect();
-    document.querySelectorAll('.tm-vis-wrap').forEach((wrap) => {
-      const orig = wrap.nextElementSibling;
-      if (orig && orig.matches('button.dropdown-button')) orig.style.removeProperty('display');
-      wrap.remove();
+    tryStep('警告の出力', () => console.warn('[tm-vis] 投稿欄の状態を読めないため停止し、本家のボタンに戻します', error));
+    for (const button of hiddenButtons) {
+      tryStep('本家のボタンの復元', () => button.style.removeProperty('display'));
+    }
+    hiddenButtons.clear();
+    tryStep('ボタン列の取得', () => {
+      for (const wrap of document.querySelectorAll('.tm-vis-wrap')) {
+        tryStep('ボタン列の撤去', () => wrap.remove());
+      }
     });
+    tryStep('監視の停止', () => observer.disconnect());
+    tryStep('購読の解除', () => {
+      const unsubscribeStore = unsubscribe;
+      unsubscribe = null;
+      if (typeof unsubscribeStore === 'function') unsubscribeStore();
+    });
+  }
+
+  // stop の 1 手順を実行する。例外は外へ出さない（警告の出力が失敗しても握りつぶす）
+  function tryStep(name, step) {
+    try {
+      step();
+    } catch (e) {
+      try {
+        console.warn(`[tm-vis] 停止処理（${name}）に失敗しました`, e);
+      } catch {
+        // 警告も出せないときは何もしない
+      }
+    }
   }
 
   // ---- Material Symbols（Mastodon 本体の UI と同じアイコン） ----
