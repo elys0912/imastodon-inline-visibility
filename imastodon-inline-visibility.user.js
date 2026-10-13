@@ -30,6 +30,12 @@
     { value: 'nobody', icon: 'quoteOff', label: '自分のみ', title: '引用：他の人は引用できない' },
   ];
 
+  // node のテスト（test/）から読み込まれたときは、制限の判定だけを渡し、DOM には触れない
+  if (typeof document === 'undefined') {
+    module.exports = { VISIBILITY, QUOTE, groupStates, hasKnownValues };
+    return;
+  }
+
   // ---- Redux store を React の内部から拾う ----
   let store = null;
   let unsubscribe = null;
@@ -112,15 +118,40 @@
     const state = store.getState();
     const compose = state.compose;
     const quotedId = compose.get('quoted_status_id');
-    const privacy = compose.get('privacy') || 'public';
     return {
-      privacy,
+      privacy: compose.get('privacy') || 'public',
       quotePolicy: compose.get('quote_policy') || 'public',
       isEditing: compose.get('id') != null,
       quotedId,
       quotedVis: quotedId ? state.statuses.getIn([quotedId, 'visibility']) : null,
-      quoteLocked: privacy === 'private' || privacy === 'direct',
     };
+  }
+
+  // ---- 本家と同じ制限 ----
+  // 状態 s から、ボタン列ごとに、選択中の値（current）・選べない値（isDisabled）・列ごと選べないか（groupDisabled）を返す
+  function groupStates(s) {
+    const quoteLocked = s.privacy === 'private' || s.privacy === 'direct';
+    return {
+      vis: {
+        current: s.privacy,
+        isDisabled: (v) =>
+          (s.quotedVis === 'private' && (v === 'public' || v === 'unlisted')) || // 非公開投稿の自己引用
+          (!!s.quotedId && v === 'direct'), // 引用中のDM化は Mastodon 本体の変換処理を再現しないので不可
+        groupDisabled: s.isEditing,
+      },
+      quote: {
+        current: quoteLocked ? 'nobody' : s.quotePolicy,
+        isDisabled: () => false,
+        groupDisabled: quoteLocked,
+      },
+    };
+  }
+
+  // どちらの列も、選択中の値がボタンのどれかに当たるなら true
+  function hasKnownValues(states) {
+    const isKnownVisibility = VISIBILITY.some((item) => item.value === states.vis.current);
+    const isKnownQuote = QUOTE.some((item) => item.value === states.quote.current);
+    return isKnownVisibility && isKnownQuote;
   }
 
   // ---- ボタン列の作成 ----
@@ -172,6 +203,14 @@
       makeGroup('quote', '引用できる人', QUOTE, (v) =>
         store.dispatch({ type: 'compose/setQuotePolicy', payload: v })),
     );
+    // 状態を反映できてから本家のボタンを隠す。反映できなければ本家のボタンのままにする
+    try {
+      sync(wrap);
+    } catch (e) {
+      stop(e);
+      return;
+    }
+
     dropdowns.insertBefore(wrap, dropdowns.firstChild);
     const orig = wrap.nextElementSibling;
     if (orig && orig.matches('button.dropdown-button')) {
@@ -182,15 +221,10 @@
       }
       hiddenButtons.add(orig);
     }
-    try {
-      sync(wrap);
-    } catch (e) {
-      stop(e);
-    }
   }
 
   // ---- ストアの状態を反映 ----
-  function apply(group, current, isDisabled, groupDisabled) {
+  function apply(group, { current, isDisabled, groupDisabled }) {
     group.classList.toggle('tm-disabled', groupDisabled);
     for (const b of group.querySelectorAll('button')) {
       const v = b.dataset.value;
@@ -201,22 +235,20 @@
     }
   }
 
+  // 選択中の値がボタンのどれにも当たらない（Mastodon が公開範囲の値を足した等）ときは例外を投げる。
+  // 呼び出し側が stop し、今の公開範囲が画面から分からなくならないよう本家のボタンに戻す
   function sync(wrap, s = readState()) {
+    const states = groupStates(s);
+    if (!hasKnownValues(states)) {
+      throw new Error(`公開範囲・引用の値が想定外です（${s.privacy} / ${s.quotePolicy}）`);
+    }
+
     const visGroup = wrap.querySelector('[data-tm-kind="vis"]');
     const qGroup = wrap.querySelector('[data-tm-kind="quote"]');
-
-    apply(
-      visGroup,
-      s.privacy,
-      (v) =>
-        (s.quotedVis === 'private' && (v === 'public' || v === 'unlisted')) || // 非公開投稿の自己引用
-        (!!s.quotedId && v === 'direct'), // 引用中のDM化は Mastodon 本体の変換処理を再現しないので不可
-      s.isEditing,
-    );
+    apply(visGroup, states.vis);
     visGroup.title = s.isEditing ? '投稿後は公開範囲を変更できません' : '';
-
-    apply(qGroup, s.quoteLocked ? 'nobody' : s.quotePolicy, () => false, s.quoteLocked);
-    qGroup.title = s.quoteLocked ? 'この公開範囲では他の人は引用できません' : '';
+    apply(qGroup, states.quote);
+    qGroup.title = states.quote.groupDisabled ? 'この公開範囲では他の人は引用できません' : '';
   }
 
   // store はタイムライン更新などあらゆる action で通知してくるので、関係する値が変わった時だけ DOM を触る。
