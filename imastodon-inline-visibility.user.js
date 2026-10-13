@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         imastodon 公開範囲・引用ワンクリック切り替え
 // @namespace    https://github.com/elys0912
-// @version      3.0.3
+// @version      3.0.4
 // @author       elys0912
 // @license      MIT AND Apache-2.0
 // @homepageURL  https://github.com/elys0912/imastodon-inline-visibility
