@@ -118,6 +118,7 @@
   }
 
   // ---- 状態の読み出し ----
+  // 読むのは compose と、引用中の引用元（statuses）だけ。ほかの値を読むように足したら、needsRead も合わせて直す
   function readState(state = store.getState()) {
     const compose = state.compose;
     const quotedId = compose.get('quoted_status_id');
@@ -202,12 +203,21 @@
     return null;
   }
 
+  // 本家のボタンが見つからなかったことを、コンソールに知らせたか（知らせるのは 1 回だけ）
+  let warnedNoButton = false;
+
   function inject(form) {
     const dropdowns = form.querySelector('.compose-form__dropdowns');
     if (!dropdowns || dropdowns.querySelector('.tm-vis-wrap')) return;
     // 本家のボタンが見つからない（Mastodon の画面の作りが変わった等）ときは、手を出さず本家のままにする
     const orig = findVisibilityButton(dropdowns);
-    if (!orig) return;
+    if (!orig) {
+      if (!warnedNoButton) {
+        warnedNoButton = true;
+        console.warn('[tm-vis] 本家の公開範囲ボタンが見つからないため、ボタン列を出しません');
+      }
+      return;
+    }
     if (!findStore(form)) return;
 
     const wrap = document.createElement('div');
@@ -272,7 +282,8 @@
     return prev.compose.get('quoted_status_id') != null && state.statuses !== prev.statuses;
   }
 
-  // store はタイムライン更新などあらゆる action で通知してくるので、関係する値が変わった時だけ読み、DOM を触る。
+  // store はタイムライン更新などあらゆる action で通知してくるので、needsRead が真のときだけ値を読み、
+  // 読んだ値（公開範囲・引用など）が前と違うときだけ DOM を触る。
   // 購読者の例外は dispatch の呼び出し元（本家の投稿・タイムライン更新など）へ投げられるので、ここで止める
   let lastSeen = null;
   let lastKey = null;
@@ -347,10 +358,8 @@
   }
 
   // ---- 投稿欄の出現を監視（デッキのカラム切り替え・返信モーダル等） ----
-  // 投稿欄（form.compose-form）の一覧。getElementsByClassName はページの変化に合わせて自動で更新されるので、毎回探し直さない
-  const forms = document.getElementsByClassName('compose-form');
   function scan() {
-    for (const form of forms) inject(form);
+    document.querySelectorAll('form.compose-form').forEach(inject);
   }
 
   // MutationObserver の記録のうち、要素が追加されたものがあるか。投稿欄が新しく出た可能性があるのはこのときだけ

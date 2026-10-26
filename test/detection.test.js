@@ -16,7 +16,8 @@ function fakeButton(name, icon = null) {
 }
 
 test('本家の公開範囲ボタンを、並び順ではなく中身（公開範囲のアイコン）で見つけ、無ければ手を出さない', () => {
-  const language = fakeButton('language');
+  // 言語のボタンも dropdown-button で、中に svg.icon-translate を持つ（language_dropdown.tsx）
+  const language = fakeButton('language', 'translate');
 
   // 公開範囲の既定値は人によって違う（フォロワーのみが既定の人もいる）ので、4 種のどのアイコンでも見つける
   for (const icon of ['globe', 'unlock', 'lock', 'at']) {

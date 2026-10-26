@@ -29,6 +29,8 @@ test('無関係な変化では読まない：投稿欄が同じなら読まず�
   const statuses = {};
 
   assert.strictEqual(needsRead({ compose, statuses }, { compose, statuses }), false, '変化なし');
+  const quoting = fakeCompose('1');
+  assert.strictEqual(needsRead({ compose: quoting, statuses }, { compose: quoting, statuses }), false, '引用中で変化なし');
   // タイムラインが流れるたびに投稿の一覧は変わる
   assert.strictEqual(needsRead({ compose, statuses }, { compose, statuses: {} }), false, '引用していないときの投稿の一覧の変化');
 });
