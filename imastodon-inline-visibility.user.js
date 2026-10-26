@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         imastodon 公開範囲・引用ワンクリック切り替え
 // @namespace    https://github.com/elys0912
-// @version      3.0.4
+// @version      3.1.0
 // @author       elys0912
 // @license      MIT AND Apache-2.0
 // @homepageURL  https://github.com/elys0912/imastodon-inline-visibility
@@ -30,9 +30,13 @@
     { value: 'nobody', icon: 'quoteOff', label: '自分のみ', title: '引用：他の人は引用できない' },
   ];
 
-  // node のテスト（test/）から読み込まれたときは、制限の判定だけを渡し、DOM には触れない
+  // 本家の公開範囲ボタン（imas/mastodon の features/compose/components/visibility_button.tsx）が中に持つアイコン。
+  // Icon は `icon-${id}` を付け、公開範囲ごとに globe / unlock / lock / at のどれかになる
+  const VISIBILITY_ICON_SELECTOR = 'svg.icon-globe, svg.icon-unlock, svg.icon-lock, svg.icon-at';
+
+  // node のテスト（test/）から読み込まれたときは、DOM に触れない判定の関数だけを渡す
   if (typeof document === 'undefined') {
-    module.exports = { VISIBILITY, QUOTE, groupStates, hasKnownValues };
+    module.exports = { VISIBILITY, QUOTE, groupStates, hasKnownValues, findVisibilityButton, needsRead, hasAddedElement };
     return;
   }
 
@@ -114,8 +118,8 @@
   }
 
   // ---- 状態の読み出し ----
-  function readState() {
-    const state = store.getState();
+  // 読むのは compose と、引用中の引用元（statuses）だけ。ほかの値を読むように足したら、needsRead も合わせて直す
+  function readState(state = store.getState()) {
     const compose = state.compose;
     const quotedId = compose.get('quoted_status_id');
     return {
@@ -190,9 +194,30 @@
     return group;
   }
 
+  // 投稿欄のボタンの並び（.compose-form__dropdowns）から、本家の公開範囲ボタンを探す。
+  // 並び順ではなく中身（公開範囲のアイコン）で見分け、言語のボタンなど隣のボタンを取り違えない。見つからなければ null
+  function findVisibilityButton(dropdowns) {
+    for (const el of dropdowns.children) {
+      if (el.matches('button.dropdown-button') && el.querySelector(VISIBILITY_ICON_SELECTOR)) return el;
+    }
+    return null;
+  }
+
+  // 本家のボタンが見つからなかったことを、コンソールに知らせたか（知らせるのは 1 回だけ）
+  let warnedNoButton = false;
+
   function inject(form) {
     const dropdowns = form.querySelector('.compose-form__dropdowns');
     if (!dropdowns || dropdowns.querySelector('.tm-vis-wrap')) return;
+    // 本家のボタンが見つからない（Mastodon の画面の作りが変わった等）ときは、手を出さず本家のままにする
+    const orig = findVisibilityButton(dropdowns);
+    if (!orig) {
+      if (!warnedNoButton) {
+        warnedNoButton = true;
+        console.warn('[tm-vis] 本家の公開範囲ボタンが見つからないため、ボタン列を出しません');
+      }
+      return;
+    }
     if (!findStore(form)) return;
 
     const wrap = document.createElement('div');
@@ -211,16 +236,14 @@
       return;
     }
 
-    dropdowns.insertBefore(wrap, dropdowns.firstChild);
-    const orig = wrap.nextElementSibling;
-    if (orig && orig.matches('button.dropdown-button')) {
-      orig.style.setProperty('display', 'none', 'important');
-      // 投稿欄ごと消えたボタンは戻す必要がないので、記録から外す
-      for (const button of hiddenButtons) {
-        if (!button.isConnected) hiddenButtons.delete(button);
-      }
-      hiddenButtons.add(orig);
+    // 本家のボタンの直前に置く（CSS の `.tm-vis-wrap + button.dropdown-button` も、このボタンを指す）
+    dropdowns.insertBefore(wrap, orig);
+    orig.style.setProperty('display', 'none', 'important');
+    // 投稿欄ごと消えたボタンは戻す必要がないので、記録から外す
+    for (const button of hiddenButtons) {
+      if (!button.isConnected) hiddenButtons.delete(button);
     }
+    hiddenButtons.add(orig);
   }
 
   // ---- ストアの状態を反映 ----
@@ -251,12 +274,25 @@
     qGroup.title = states.quote.groupDisabled ? 'この公開範囲では他の人は引用できません' : '';
   }
 
-  // store はタイムライン更新などあらゆる action で通知してくるので、関係する値が変わった時だけ DOM を触る。
+  // store の通知のうち、値の読み直しが要るものか。prev は前に読んだときの { compose, statuses }。
+  // 投稿欄の状態（compose）が変わったとき。引用中は、引用元の公開範囲が変わりうるので投稿の一覧（statuses）が変わったときも。
+  // Immutable の Map は中身が変わると別のオブジェクトになるので、同じオブジェクトかどうかだけで比べる
+  function needsRead(prev, state) {
+    if (!prev || state.compose !== prev.compose) return true;
+    return prev.compose.get('quoted_status_id') != null && state.statuses !== prev.statuses;
+  }
+
+  // store はタイムライン更新などあらゆる action で通知してくるので、needsRead が真のときだけ値を読み、
+  // 読んだ値（公開範囲・引用など）が前と違うときだけ DOM を触る。
   // 購読者の例外は dispatch の呼び出し元（本家の投稿・タイムライン更新など）へ投げられるので、ここで止める
+  let lastSeen = null;
   let lastKey = null;
   function syncAll() {
     try {
-      const s = readState();
+      const state = store.getState();
+      if (!needsRead(lastSeen, state)) return;
+      lastSeen = { compose: state.compose, statuses: state.statuses };
+      const s = readState(state);
       const key = [s.privacy, s.quotePolicy, s.isEditing, s.quotedId, s.quotedVis].join('|');
       if (key === lastKey) return;
       lastKey = key;
@@ -325,10 +361,17 @@
   function scan() {
     document.querySelectorAll('form.compose-form').forEach(inject);
   }
+
+  // MutationObserver の記録のうち、要素が追加されたものがあるか。投稿欄が新しく出た可能性があるのはこのときだけ
+  // （削除だけ・文字だけの変化では走査しない）。1 は Node.ELEMENT_NODE
+  function hasAddedElement(records) {
+    return records.some((r) => Array.prototype.some.call(r.addedNodes, (n) => n.nodeType === 1));
+  }
+
   // 変更が連続しても 1 フレームに 1 回だけ走査する
   let scanQueued = false;
-  const observer = new MutationObserver(() => {
-    if (scanQueued) return;
+  const observer = new MutationObserver((records) => {
+    if (scanQueued || !hasAddedElement(records)) return;
     scanQueued = true;
     requestAnimationFrame(() => {
       scanQueued = false;
