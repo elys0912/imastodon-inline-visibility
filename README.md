@@ -5,8 +5,14 @@ imastodon.net（Mastodon 4.5+）の投稿欄で、「公開範囲と引用」ダ
 ## インストール
 
 1. ブラウザに [Tampermonkey](https://www.tampermonkey.net/) を入れる（Firefox 版を想定）
-2. [imastodon-inline-visibility.user.js（Raw）](https://raw.githubusercontent.com/elys0912/imastodon-inline-visibility/main/imastodon-inline-visibility.user.js) を開く
+2. [imastodon-inline-visibility.user.js（最新のリリース）](https://github.com/elys0912/imastodon-inline-visibility/releases/latest/download/imastodon-inline-visibility.user.js) を開く
 3. Tampermonkey のインストール画面が出るので「インストール」
+
+### 3.1.0 以前を入れている方へ
+
+3.2.0 から、配布元を main ブランチから [Releases](https://github.com/elys0912/imastodon-inline-visibility/releases) に変えました。3.2.0 への自動更新で、更新の確認先も Releases に切り替わります。
+
+Tampermonkey のダッシュボードでこのスクリプトの版が 3.2.0 にならない場合や、スクリプトの設定にある更新の確認先の URL が `raw.githubusercontent.com` のままの場合は、上の手順で 1 回だけ入れ直してください。設定と動作は変わりません。
 
 ## 機能
 
@@ -38,7 +44,13 @@ node --check imastodon-inline-visibility.user.js   # 構文の検査
 node --test                                         # 判定のテスト（test/）。依存パッケージなし
 ```
 
-main への push が、そのまま全利用者への配布になる（`@updateURL` が main を指す）。push の前に上の 2 つを通す。
+配布は Releases の添付ファイル。`@updateURL` と `@downloadURL` は `releases/latest/download/imastodon-inline-visibility.user.js`（最新のリリースの添付）を指す。版を出す手順：
+
+1. `@version` と CHANGELOG.md を上げ、上の 2 つを通して PR でマージする
+2. 実際の imastodon.net で動作を確かめる
+3. `gh release create vX.Y.Z imastodon-inline-visibility.user.js --title vX.Y.Z --notes-file <CHANGELOG の該当の節>` でリリースを作り、.user.js を添付する。添付した時点で全利用者への配布になる
+
+3.1.0 以前の利用者は、自動更新で main の 3.2.0 を受け取るまで main の raw を見ている。main の .user.js は消さない。
 
 test/ は、制限の判定（restrictions）、通信しないこと（no-network）、本家のボタンの見分け方と投稿欄の走査の判定（detection）、ストアの値を読み直す判定（sync）。DOM やストアに触れる部分は、配布の前に実際の imastodon.net で確かめる。
 
