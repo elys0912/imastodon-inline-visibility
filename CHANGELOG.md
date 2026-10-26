@@ -1,5 +1,12 @@
 # 変更履歴
 
+## 3.2.0（2026-10-27）
+
+見た目と操作は変わりません。
+
+- 配布元を main ブランチから [Releases](https://github.com/elys0912/imastodon-inline-visibility/releases) に変えました。この版への自動更新で、更新の確認先も Releases に切り替わります
+- Tampermonkey で版が 3.2.0 にならない場合や、スクリプトの設定にある更新の確認先の URL が `raw.githubusercontent.com` のままの場合は、[README のインストール](README.md#インストール) の手順で 1 回だけ入れ直してください
+
 ## 3.1.0（2026-10-26）
 
 見た目と操作は変わりません。

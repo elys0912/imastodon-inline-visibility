@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         imastodon 公開範囲・引用ワンクリック切り替え
 // @namespace    https://github.com/elys0912
-// @version      3.1.0
+// @version      3.2.0
 // @author       elys0912
 // @license      MIT AND Apache-2.0
 // @homepageURL  https://github.com/elys0912/imastodon-inline-visibility
 // @supportURL   https://github.com/elys0912/imastodon-inline-visibility/issues
-// @downloadURL  https://raw.githubusercontent.com/elys0912/imastodon-inline-visibility/main/imastodon-inline-visibility.user.js
-// @updateURL    https://raw.githubusercontent.com/elys0912/imastodon-inline-visibility/main/imastodon-inline-visibility.user.js
+// @downloadURL  https://github.com/elys0912/imastodon-inline-visibility/releases/latest/download/imastodon-inline-visibility.user.js
+// @updateURL    https://github.com/elys0912/imastodon-inline-visibility/releases/latest/download/imastodon-inline-visibility.user.js
 // @description  投稿欄の「公開範囲と引用」ダイアログを、ワンクリックで切り替えられるアイコンボタン列に置き換えます（Mastodon 4.5+）
 // @match        https://imastodon.net/*
 // @run-at       document-idle
