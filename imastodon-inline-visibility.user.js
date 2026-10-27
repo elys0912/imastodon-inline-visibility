@@ -38,7 +38,9 @@
   // テストが使う hasAddedElement から参照するので、下の分岐より前で宣言する
   const ELEMENT_NODE = 1;
 
-  // 本家の Redux の compose が持つキーと、本家が受け付ける action type。本家が名前を変えると切り替え・判定が効かなくなる。
+  // 本家（imas/mastodon）の Redux の値。本家が名前を変えると切り替え・判定が効かなくなる。
+  // キーは reducers/compose.js の compose の state、action type は actions/compose_typed.ts の
+  // changeComposeVisibility・setComposeQuotePolicy による。
   // 引用元の ID のキーは、テストが使う needsRead から参照するので、下の分岐より前で宣言する
   const QUOTED_STATUS_ID_KEY = 'quoted_status_id';
   const VISIBILITY_CHANGE_ACTION = 'compose/visibility_change';
@@ -84,10 +86,10 @@
     return store;
   }
 
+  // ---- スタイル ----
   // 差し込むボタン列の外枠のクラス。下の CSS の .tm-vis-wrap と合わせる
   const WRAP_CLASS = 'tm-vis-wrap';
 
-  // ---- スタイル ----
   // 枠と文字色は Mastodon 本体のボタンの .dropdown-button を借り、中のボタンは currentColor 基準で塗る
   const style = document.createElement('style');
   style.textContent = `
@@ -163,10 +165,10 @@
         current: composeState.privacy,
         isDisabled: (v) => {
           // 非公開投稿の自己引用では、公開・ひかえめにできない
-          const widensPrivateSelfQuote = composeState.quotedVis === 'private' && (v === 'public' || v === 'unlisted');
+          const isWideningPrivateSelfQuote = composeState.quotedVis === 'private' && (v === 'public' || v === 'unlisted');
           // 引用中の DM 化は、Mastodon 本体の変換処理を再現しないため不可
           const isDirectWhileQuoting = !!composeState.quotedId && v === 'direct';
-          return widensPrivateSelfQuote || isDirectWhileQuoting;
+          return isWideningPrivateSelfQuote || isDirectWhileQuoting;
         },
         groupDisabled: composeState.isEditing,
       },
