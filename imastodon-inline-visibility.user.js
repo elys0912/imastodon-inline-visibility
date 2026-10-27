@@ -57,21 +57,31 @@
   let stopped = false;
   // inject で隠した本家のボタン。stop で位置関係に頼らずに戻すため記録する
   const hiddenButtons = new Set();
-  function findStore(el) {
-    if (stopped) return null;
-    if (store) return store;
+
+  // 要素 el から React の fiber を親へたどり、props に Redux store を持つものを探す。見つからなければ null
+  function locateStore(el) {
     const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
     let fiber = key ? el[key] : null;
     while (fiber) {
       const candidate = fiber.memoizedProps && fiber.memoizedProps.store;
       if (candidate && typeof candidate.dispatch === 'function' && typeof candidate.getState === 'function') {
-        store = candidate;
-        unsubscribe = store.subscribe(syncAll);
-        return store;
+        return candidate;
       }
       fiber = fiber.return;
     }
     return null;
+  }
+
+  // store を返す。初めて見つけたときに記録して購読を始める。見つからないとき・停止後は null
+  function connectStore(el) {
+    if (stopped) return null;
+    if (store) return store;
+    const found = locateStore(el);
+    if (!found) return null;
+
+    store = found;
+    unsubscribe = store.subscribe(syncAll);
+    return store;
   }
 
   // 差し込むボタン列の外枠のクラス。下の CSS の .tm-vis-wrap と合わせる
@@ -239,7 +249,7 @@
       warnNoButtonOnce();
       return;
     }
-    if (!findStore(form)) return;
+    if (!connectStore(form)) return;
 
     const wrap = buildWrap();
     // 状態を反映できてから本家のボタンを隠す。反映できなければ本家のボタンのままにする
