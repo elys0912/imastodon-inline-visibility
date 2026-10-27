@@ -183,32 +183,42 @@
     group.setAttribute('role', 'radiogroup');
     group.setAttribute('aria-label', ariaLabel);
     for (const item of items) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.dataset.value = item.value;
-      b.title = item.title;
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-label', item.title);
-      b.innerHTML = `${svgIcon(item.icon)}<span class="tm-label"></span>`;
-      b.querySelector('.tm-label').textContent = item.label;
-      b.addEventListener('click', () => {
-        if (!store || b.disabled || b.getAttribute('aria-checked') === 'true') return;
-        onPick(item.value);
-      });
-      group.appendChild(b);
+      group.appendChild(makeButton(item, onPick));
     }
-    // ←→キーで隣の選択肢へ
-    group.addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      const btns = [...group.querySelectorAll('button:not(:disabled)')];
-      const i = btns.indexOf(document.activeElement);
-      if (i < 0) return;
-      e.preventDefault();
-      const next = btns[(i + (e.key === 'ArrowRight' ? 1 : -1) + btns.length) % btns.length];
-      next.focus();
-      next.click();
-    });
+    group.addEventListener('keydown', (e) => handleArrowKey(group, e));
+
     return group;
+  }
+
+  function makeButton(item, onPick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.value = item.value;
+    button.title = item.title;
+    button.setAttribute('role', 'radio');
+    button.setAttribute('aria-label', item.title);
+    button.innerHTML = `${svgIcon(item.icon)}<span class="tm-label"></span>`;
+    button.querySelector('.tm-label').textContent = item.label;
+    button.addEventListener('click', () => {
+      if (!store || button.disabled || button.getAttribute('aria-checked') === 'true') return;
+      onPick(item.value);
+    });
+
+    return button;
+  }
+
+  // ←→キーで隣の選択肢へ移り、そのまま選ぶ。端の先は反対の端に回る
+  function handleArrowKey(group, e) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const buttons = [...group.querySelectorAll('button:not(:disabled)')];
+    const focusedIndex = buttons.indexOf(document.activeElement);
+    if (focusedIndex < 0) return;
+
+    e.preventDefault();
+    const step = e.key === 'ArrowRight' ? 1 : -1;
+    const next = buttons[(focusedIndex + step + buttons.length) % buttons.length];
+    next.focus();
+    next.click();
   }
 
   // 投稿欄のボタンの並び（.compose-form__dropdowns）から、本家の公開範囲ボタンを探す。
