@@ -230,31 +230,18 @@
     return null;
   }
 
-  // 本家のボタンが見つからなかったことを、コンソールに知らせたか（知らせるのは 1 回だけ）
-  let warnedNoButton = false;
-
   function inject(form) {
     const dropdowns = form.querySelector('.compose-form__dropdowns');
     if (!dropdowns || dropdowns.querySelector(`.${WRAP_CLASS}`)) return;
     // 本家のボタンが見つからない（Mastodon の画面の作りが変わった等）ときは、手を出さず本家のままにする
     const orig = findVisibilityButton(dropdowns);
     if (!orig) {
-      if (!warnedNoButton) {
-        warnedNoButton = true;
-        console.warn('[tm-vis] 本家の公開範囲ボタンが見つからないため、ボタン列を出しません');
-      }
+      warnNoButtonOnce();
       return;
     }
     if (!findStore(form)) return;
 
-    const wrap = document.createElement('div');
-    wrap.className = WRAP_CLASS;
-    wrap.append(
-      makeGroup('vis', '公開範囲', VISIBILITY, (v) =>
-        store.dispatch({ type: VISIBILITY_CHANGE_ACTION, payload: v, meta: { arg: v } })),
-      makeGroup('quote', '引用できる人', QUOTE, (v) =>
-        store.dispatch({ type: SET_QUOTE_POLICY_ACTION, payload: v })),
-    );
+    const wrap = buildWrap();
     // 状態を反映できてから本家のボタンを隠す。反映できなければ本家のボタンのままにする
     try {
       sync(wrap, readState(store.getState()));
@@ -265,6 +252,32 @@
 
     // 本家のボタンの直前に置く（CSS の `.tm-vis-wrap + button.dropdown-button` も、このボタンを指す）
     dropdowns.insertBefore(wrap, orig);
+    hideOriginalButton(orig);
+  }
+
+  // 本家のボタンが見つからなかったことを、コンソールに知らせたか（知らせるのは 1 回だけ）
+  let warnedNoButton = false;
+
+  function warnNoButtonOnce() {
+    if (warnedNoButton) return;
+    warnedNoButton = true;
+    console.warn('[tm-vis] 本家の公開範囲ボタンが見つからないため、ボタン列を出しません');
+  }
+
+  function buildWrap() {
+    const wrap = document.createElement('div');
+    wrap.className = WRAP_CLASS;
+    wrap.append(
+      makeGroup('vis', '公開範囲', VISIBILITY, (v) =>
+        store.dispatch({ type: VISIBILITY_CHANGE_ACTION, payload: v, meta: { arg: v } })),
+      makeGroup('quote', '引用できる人', QUOTE, (v) =>
+        store.dispatch({ type: SET_QUOTE_POLICY_ACTION, payload: v })),
+    );
+
+    return wrap;
+  }
+
+  function hideOriginalButton(orig) {
     orig.style.setProperty('display', 'none', 'important');
     // 投稿欄ごと消えたボタンは戻す必要がないので、記録から外す
     for (const button of hiddenButtons) {
