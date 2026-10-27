@@ -34,6 +34,10 @@
   // Icon は `icon-${id}` を付け、公開範囲ごとに globe / unlock / lock / at のどれかになる
   const VISIBILITY_ICON_SELECTOR = 'svg.icon-globe, svg.icon-unlock, svg.icon-lock, svg.icon-at';
 
+  // Node.ELEMENT_NODE の値。node のテストには Node が無いため値で持つ。
+  // テストが使う hasAddedElement から参照するので、下の分岐より前で宣言する
+  const ELEMENT_NODE = 1;
+
   // node のテスト（test/）から読み込まれたときは、DOM に触れない判定の関数だけを渡す
   if (typeof document === 'undefined') {
     module.exports = { VISIBILITY, QUOTE, groupStates, hasKnownValues, findVisibilityButton, needsRead, hasAddedElement };
@@ -138,9 +142,13 @@
     return {
       vis: {
         current: s.privacy,
-        isDisabled: (v) =>
-          (s.quotedVis === 'private' && (v === 'public' || v === 'unlisted')) || // 非公開投稿の自己引用
-          (!!s.quotedId && v === 'direct'), // 引用中のDM化は Mastodon 本体の変換処理を再現しないので不可
+        isDisabled: (v) => {
+          // 非公開投稿の自己引用では、公開・ひかえめにできない
+          const widensPrivateSelfQuote = s.quotedVis === 'private' && (v === 'public' || v === 'unlisted');
+          // 引用中の DM 化は、Mastodon 本体の変換処理を再現しないため不可
+          const isDirectWhileQuoting = !!s.quotedId && v === 'direct';
+          return widensPrivateSelfQuote || isDirectWhileQuoting;
+        },
         groupDisabled: s.isEditing,
       },
       quote: {
@@ -363,9 +371,9 @@
   }
 
   // MutationObserver の記録のうち、要素が追加されたものがあるか。投稿欄が新しく出た可能性があるのはこのときだけ
-  // （削除だけ・文字だけの変化では走査しない）。1 は Node.ELEMENT_NODE
+  // （削除だけ・文字だけの変化では走査しない）
   function hasAddedElement(records) {
-    return records.some((r) => Array.prototype.some.call(r.addedNodes, (n) => n.nodeType === 1));
+    return records.some((r) => Array.prototype.some.call(r.addedNodes, (n) => n.nodeType === ELEMENT_NODE));
   }
 
   // 変更が連続しても 1 フレームに 1 回だけ走査する
