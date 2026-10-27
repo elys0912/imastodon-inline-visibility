@@ -132,7 +132,7 @@
 
   // ---- 状態の読み出し ----
   // 読むのは compose と、引用中の引用元（statuses）だけ。ほかの値を読むように足したら、needsRead も合わせて直す
-  function readState(state = store.getState()) {
+  function readState(state) {
     const compose = state.compose;
     const quotedId = compose.get(QUOTED_STATUS_ID_KEY);
     return {
@@ -247,7 +247,7 @@
     );
     // 状態を反映できてから本家のボタンを隠す。反映できなければ本家のボタンのままにする
     try {
-      sync(wrap);
+      sync(wrap, readState(store.getState()));
     } catch (e) {
       stop(e);
       return;
@@ -264,8 +264,10 @@
   }
 
   // ---- ストアの状態を反映 ----
-  function applyGroupState(group, { current, isDisabled, groupDisabled }) {
+  // disabledTitle は列ごと選べないときのツールチップ
+  function applyGroupState(group, { current, isDisabled, groupDisabled }, disabledTitle) {
     group.classList.toggle('tm-disabled', groupDisabled);
+    group.title = groupDisabled ? disabledTitle : '';
     for (const b of group.querySelectorAll('button')) {
       const v = b.dataset.value;
       const checked = v === current;
@@ -277,7 +279,7 @@
 
   // 選択中の値がボタンのどれにも当たらない（Mastodon が公開範囲の値を足した等）ときは例外を投げる。
   // 呼び出し側が stop し、今の公開範囲が画面から分からなくならないよう本家のボタンに戻す
-  function sync(wrap, composeState = readState()) {
+  function sync(wrap, composeState) {
     const states = groupStates(composeState);
     if (!hasKnownValues(states)) {
       throw new Error(`公開範囲・引用の値が想定外です（${composeState.privacy} / ${composeState.quotePolicy}）`);
@@ -285,10 +287,8 @@
 
     const visGroup = wrap.querySelector('[data-tm-kind="vis"]');
     const qGroup = wrap.querySelector('[data-tm-kind="quote"]');
-    applyGroupState(visGroup, states.vis);
-    visGroup.title = composeState.isEditing ? '投稿後は公開範囲を変更できません' : '';
-    applyGroupState(qGroup, states.quote);
-    qGroup.title = states.quote.groupDisabled ? 'この公開範囲では他の人は引用できません' : '';
+    applyGroupState(visGroup, states.vis, '投稿後は公開範囲を変更できません');
+    applyGroupState(qGroup, states.quote, 'この公開範囲では他の人は引用できません');
   }
 
   // store の通知のうち、値の読み直しが要るものか。prev は前に読んだときの { compose, statuses }。
@@ -310,7 +310,8 @@
       if (!needsRead(lastSeen, state)) return;
       lastSeen = { compose: state.compose, statuses: state.statuses };
       const composeState = readState(state);
-      const key = [composeState.privacy, composeState.quotePolicy, composeState.isEditing, composeState.quotedId, composeState.quotedVis].join('|');
+      // readState が返す値をすべて並べる。readState に項目を足しても、比べ忘れが起きない
+      const key = Object.values(composeState).join('|');
       if (key === lastKey) return;
       lastKey = key;
       document.querySelectorAll(`.${WRAP_CLASS}`).forEach((wrap) => sync(wrap, composeState));
