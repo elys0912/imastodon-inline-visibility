@@ -43,6 +43,7 @@ test('編集中は、公開範囲を列ごと選べない', () => {
 test('非公開投稿の自己引用では、公開とひかえめを選べない', () => {
   const states = groupStates({ ...BASE, privacy: 'private', quotedId: '1', quotedVis: 'private' });
 
+  // direct は別の規則（引用中は「指定のみ」を選べない）による
   assert.deepStrictEqual(disabledValues(states.vis, VISIBILITY), ['public', 'unlisted', 'direct']);
 });
 
