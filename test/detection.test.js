@@ -11,7 +11,11 @@ function fakeButton(name, icon = null) {
   return {
     name,
     matches: (selector) => selector === 'button.dropdown-button',
-    querySelector: (selector) => (icon && selector.split(', ').includes(`svg.icon-${icon}`) ? {} : null),
+    // 選択子の区切り方（空白・改行）に左右されないよう、`svg.icon-<id>` の id だけを取り出して比べる
+    querySelector: (selector) => {
+      const icons = [...selector.matchAll(/svg\.icon-([\w-]+)/g)].map((match) => match[1]);
+      return icon && icons.includes(icon) ? {} : null;
+    },
   };
 }
 

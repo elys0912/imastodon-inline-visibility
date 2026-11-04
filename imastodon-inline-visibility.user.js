@@ -34,6 +34,18 @@
   // Icon は `icon-${id}` を付け、公開範囲ごとに globe / unlock / lock / at のどれかになる
   const VISIBILITY_ICON_SELECTOR = 'svg.icon-globe, svg.icon-unlock, svg.icon-lock, svg.icon-at';
 
+  // Node.ELEMENT_NODE の値。node のテストには Node が無いため値で持つ。
+  // テストが使う hasAddedElement から参照するので、下の分岐より前で宣言する
+  const ELEMENT_NODE = 1;
+
+  // 本家（imas/mastodon）の Redux の値。本家が名前を変えると切り替え・判定が効かなくなる。
+  // キーは reducers/compose.js の compose の state、action type は actions/compose_typed.ts の
+  // changeComposeVisibility・setComposeQuotePolicy による。
+  // 引用元の ID のキーは、テストが使う needsRead から参照するので、下の分岐より前で宣言する
+  const QUOTED_STATUS_ID_KEY = 'quoted_status_id';
+  const VISIBILITY_CHANGE_ACTION = 'compose/visibility_change';
+  const SET_QUOTE_POLICY_ACTION = 'compose/setQuotePolicy';
+
   // node のテスト（test/）から読み込まれたときは、DOM に触れない判定の関数だけを渡す
   if (typeof document === 'undefined') {
     module.exports = { VISIBILITY, QUOTE, groupStates, hasKnownValues, findVisibilityButton, needsRead, hasAddedElement };
@@ -47,24 +59,37 @@
   let stopped = false;
   // inject で隠した本家のボタン。stop で位置関係に頼らずに戻すため記録する
   const hiddenButtons = new Set();
-  function findStore(el) {
-    if (stopped) return null;
-    if (store) return store;
+
+  // 要素 el から React の fiber を親へたどり、props に Redux store を持つものを探す。見つからなければ null
+  function locateStore(el) {
     const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
     let fiber = key ? el[key] : null;
     while (fiber) {
-      const s = fiber.memoizedProps && fiber.memoizedProps.store;
-      if (s && typeof s.dispatch === 'function' && typeof s.getState === 'function') {
-        store = s;
-        unsubscribe = store.subscribe(syncAll);
-        return store;
+      const candidate = fiber.memoizedProps && fiber.memoizedProps.store;
+      if (candidate && typeof candidate.dispatch === 'function' && typeof candidate.getState === 'function') {
+        return candidate;
       }
       fiber = fiber.return;
     }
     return null;
   }
 
+  // store を返す。初めて見つけたときに記録して購読を始める。見つからないとき・停止後は null
+  function connectStore(el) {
+    if (stopped) return null;
+    if (store) return store;
+    const found = locateStore(el);
+    if (!found) return null;
+
+    store = found;
+    unsubscribe = store.subscribe(syncAll);
+    return store;
+  }
+
   // ---- スタイル ----
+  // 差し込むボタン列の外枠のクラス。下の CSS の .tm-vis-wrap と合わせる
+  const WRAP_CLASS = 'tm-vis-wrap';
+
   // 枠と文字色は Mastodon 本体のボタンの .dropdown-button を借り、中のボタンは currentColor 基準で塗る
   const style = document.createElement('style');
   style.textContent = `
@@ -119,9 +144,9 @@
 
   // ---- 状態の読み出し ----
   // 読むのは compose と、引用中の引用元（statuses）だけ。ほかの値を読むように足したら、needsRead も合わせて直す
-  function readState(state = store.getState()) {
+  function readState(state) {
     const compose = state.compose;
-    const quotedId = compose.get('quoted_status_id');
+    const quotedId = compose.get(QUOTED_STATUS_ID_KEY);
     return {
       privacy: compose.get('privacy') || 'public',
       quotePolicy: compose.get('quote_policy') || 'public',
@@ -132,19 +157,23 @@
   }
 
   // ---- 本家と同じ制限 ----
-  // 状態 s から、ボタン列ごとに、選択中の値（current）・選べない値（isDisabled）・列ごと選べないか（groupDisabled）を返す
-  function groupStates(s) {
-    const quoteLocked = s.privacy === 'private' || s.privacy === 'direct';
+  // 投稿欄の状態（readState の戻り値）から、ボタン列ごとに、選択中の値（current）・選べない値（isDisabled）・列ごと選べないか（groupDisabled）を返す
+  function groupStates(composeState) {
+    const quoteLocked = composeState.privacy === 'private' || composeState.privacy === 'direct';
     return {
       vis: {
-        current: s.privacy,
-        isDisabled: (v) =>
-          (s.quotedVis === 'private' && (v === 'public' || v === 'unlisted')) || // 非公開投稿の自己引用
-          (!!s.quotedId && v === 'direct'), // 引用中のDM化は Mastodon 本体の変換処理を再現しないので不可
-        groupDisabled: s.isEditing,
+        current: composeState.privacy,
+        isDisabled: (v) => {
+          // 非公開投稿の自己引用では、公開・ひかえめにできない
+          const isWideningPrivateSelfQuote = composeState.quotedVis === 'private' && (v === 'public' || v === 'unlisted');
+          // 引用中の DM 化は、Mastodon 本体の変換処理を再現しないため不可
+          const isDirectWhileQuoting = !!composeState.quotedId && v === 'direct';
+          return isWideningPrivateSelfQuote || isDirectWhileQuoting;
+        },
+        groupDisabled: composeState.isEditing,
       },
       quote: {
-        current: quoteLocked ? 'nobody' : s.quotePolicy,
+        current: quoteLocked ? 'nobody' : composeState.quotePolicy,
         isDisabled: () => false,
         groupDisabled: quoteLocked,
       },
@@ -166,32 +195,42 @@
     group.setAttribute('role', 'radiogroup');
     group.setAttribute('aria-label', ariaLabel);
     for (const item of items) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.dataset.value = item.value;
-      b.title = item.title;
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-label', item.title);
-      b.innerHTML = `${svgIcon(item.icon)}<span class="tm-label"></span>`;
-      b.querySelector('.tm-label').textContent = item.label;
-      b.addEventListener('click', () => {
-        if (!store || b.disabled || b.getAttribute('aria-checked') === 'true') return;
-        onPick(item.value);
-      });
-      group.appendChild(b);
+      group.appendChild(makeButton(item, onPick));
     }
-    // ←→キーで隣の選択肢へ
-    group.addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      const btns = [...group.querySelectorAll('button:not(:disabled)')];
-      const i = btns.indexOf(document.activeElement);
-      if (i < 0) return;
-      e.preventDefault();
-      const next = btns[(i + (e.key === 'ArrowRight' ? 1 : -1) + btns.length) % btns.length];
-      next.focus();
-      next.click();
-    });
+    group.addEventListener('keydown', (e) => handleArrowKey(group, e));
+
     return group;
+  }
+
+  function makeButton(item, onPick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.value = item.value;
+    button.title = item.title;
+    button.setAttribute('role', 'radio');
+    button.setAttribute('aria-label', item.title);
+    button.innerHTML = `${svgIcon(item.icon)}<span class="tm-label"></span>`;
+    button.querySelector('.tm-label').textContent = item.label;
+    button.addEventListener('click', () => {
+      if (!store || button.disabled || button.getAttribute('aria-checked') === 'true') return;
+      onPick(item.value);
+    });
+
+    return button;
+  }
+
+  // ←→キーで隣の選択肢へ移り、そのまま選ぶ。端の先は反対の端に回る
+  function handleArrowKey(group, e) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const buttons = [...group.querySelectorAll('button:not(:disabled)')];
+    const focusedIndex = buttons.indexOf(document.activeElement);
+    if (focusedIndex < 0) return;
+
+    e.preventDefault();
+    const step = e.key === 'ArrowRight' ? 1 : -1;
+    const next = buttons[(focusedIndex + step + buttons.length) % buttons.length];
+    next.focus();
+    next.click();
   }
 
   // 投稿欄のボタンの並び（.compose-form__dropdowns）から、本家の公開範囲ボタンを探す。
@@ -203,34 +242,21 @@
     return null;
   }
 
-  // 本家のボタンが見つからなかったことを、コンソールに知らせたか（知らせるのは 1 回だけ）
-  let warnedNoButton = false;
-
   function inject(form) {
     const dropdowns = form.querySelector('.compose-form__dropdowns');
-    if (!dropdowns || dropdowns.querySelector('.tm-vis-wrap')) return;
+    if (!dropdowns || dropdowns.querySelector(`.${WRAP_CLASS}`)) return;
     // 本家のボタンが見つからない（Mastodon の画面の作りが変わった等）ときは、手を出さず本家のままにする
     const orig = findVisibilityButton(dropdowns);
     if (!orig) {
-      if (!warnedNoButton) {
-        warnedNoButton = true;
-        console.warn('[tm-vis] 本家の公開範囲ボタンが見つからないため、ボタン列を出しません');
-      }
+      warnNoButtonOnce();
       return;
     }
-    if (!findStore(form)) return;
+    if (!connectStore(form)) return;
 
-    const wrap = document.createElement('div');
-    wrap.className = 'tm-vis-wrap';
-    wrap.append(
-      makeGroup('vis', '公開範囲', VISIBILITY, (v) =>
-        store.dispatch({ type: 'compose/visibility_change', payload: v, meta: { arg: v } })),
-      makeGroup('quote', '引用できる人', QUOTE, (v) =>
-        store.dispatch({ type: 'compose/setQuotePolicy', payload: v })),
-    );
+    const wrap = buildWrap();
     // 状態を反映できてから本家のボタンを隠す。反映できなければ本家のボタンのままにする
     try {
-      sync(wrap);
+      sync(wrap, readState(store.getState()));
     } catch (e) {
       stop(e);
       return;
@@ -238,6 +264,32 @@
 
     // 本家のボタンの直前に置く（CSS の `.tm-vis-wrap + button.dropdown-button` も、このボタンを指す）
     dropdowns.insertBefore(wrap, orig);
+    hideOriginalButton(orig);
+  }
+
+  // 本家のボタンが見つからなかったことを、コンソールに知らせたか（知らせるのは 1 回だけ）
+  let warnedNoButton = false;
+
+  function warnNoButtonOnce() {
+    if (warnedNoButton) return;
+    warnedNoButton = true;
+    console.warn('[tm-vis] 本家の公開範囲ボタンが見つからないため、ボタン列を出しません');
+  }
+
+  function buildWrap() {
+    const wrap = document.createElement('div');
+    wrap.className = WRAP_CLASS;
+    wrap.append(
+      makeGroup('vis', '公開範囲', VISIBILITY, (v) =>
+        store.dispatch({ type: VISIBILITY_CHANGE_ACTION, payload: v, meta: { arg: v } })),
+      makeGroup('quote', '引用できる人', QUOTE, (v) =>
+        store.dispatch({ type: SET_QUOTE_POLICY_ACTION, payload: v })),
+    );
+
+    return wrap;
+  }
+
+  function hideOriginalButton(orig) {
     orig.style.setProperty('display', 'none', 'important');
     // 投稿欄ごと消えたボタンは戻す必要がないので、記録から外す
     for (const button of hiddenButtons) {
@@ -247,8 +299,10 @@
   }
 
   // ---- ストアの状態を反映 ----
-  function apply(group, { current, isDisabled, groupDisabled }) {
+  // disabledTitle は列ごと選べないときのツールチップ
+  function applyGroupState(group, { current, isDisabled, groupDisabled }, disabledTitle) {
     group.classList.toggle('tm-disabled', groupDisabled);
+    group.title = groupDisabled ? disabledTitle : '';
     for (const b of group.querySelectorAll('button')) {
       const v = b.dataset.value;
       const checked = v === current;
@@ -260,18 +314,16 @@
 
   // 選択中の値がボタンのどれにも当たらない（Mastodon が公開範囲の値を足した等）ときは例外を投げる。
   // 呼び出し側が stop し、今の公開範囲が画面から分からなくならないよう本家のボタンに戻す
-  function sync(wrap, s = readState()) {
-    const states = groupStates(s);
+  function sync(wrap, composeState) {
+    const states = groupStates(composeState);
     if (!hasKnownValues(states)) {
-      throw new Error(`公開範囲・引用の値が想定外です（${s.privacy} / ${s.quotePolicy}）`);
+      throw new Error(`公開範囲・引用の値が想定外です（${composeState.privacy} / ${composeState.quotePolicy}）`);
     }
 
     const visGroup = wrap.querySelector('[data-tm-kind="vis"]');
     const qGroup = wrap.querySelector('[data-tm-kind="quote"]');
-    apply(visGroup, states.vis);
-    visGroup.title = s.isEditing ? '投稿後は公開範囲を変更できません' : '';
-    apply(qGroup, states.quote);
-    qGroup.title = states.quote.groupDisabled ? 'この公開範囲では他の人は引用できません' : '';
+    applyGroupState(visGroup, states.vis, '投稿後は公開範囲を変更できません');
+    applyGroupState(qGroup, states.quote, 'この公開範囲では他の人は引用できません');
   }
 
   // store の通知のうち、値の読み直しが要るものか。prev は前に読んだときの { compose, statuses }。
@@ -279,7 +331,7 @@
   // Immutable の Map は中身が変わると別のオブジェクトになるので、同じオブジェクトかどうかだけで比べる
   function needsRead(prev, state) {
     if (!prev || state.compose !== prev.compose) return true;
-    return prev.compose.get('quoted_status_id') != null && state.statuses !== prev.statuses;
+    return prev.compose.get(QUOTED_STATUS_ID_KEY) != null && state.statuses !== prev.statuses;
   }
 
   // store はタイムライン更新などあらゆる action で通知してくるので、needsRead が真のときだけ値を読み、
@@ -292,11 +344,12 @@
       const state = store.getState();
       if (!needsRead(lastSeen, state)) return;
       lastSeen = { compose: state.compose, statuses: state.statuses };
-      const s = readState(state);
-      const key = [s.privacy, s.quotePolicy, s.isEditing, s.quotedId, s.quotedVis].join('|');
+      const composeState = readState(state);
+      // readState が返す値をすべて並べる。readState に項目を足しても、比べ忘れが起きない
+      const key = Object.values(composeState).join('|');
       if (key === lastKey) return;
       lastKey = key;
-      document.querySelectorAll('.tm-vis-wrap').forEach((wrap) => sync(wrap, s));
+      document.querySelectorAll(`.${WRAP_CLASS}`).forEach((wrap) => sync(wrap, composeState));
     } catch (e) {
       stop(e);
     }
@@ -314,7 +367,7 @@
     }
     hiddenButtons.clear();
     tryStep('ボタン列の取得', () => {
-      for (const wrap of document.querySelectorAll('.tm-vis-wrap')) {
+      for (const wrap of document.querySelectorAll(`.${WRAP_CLASS}`)) {
         tryStep('ボタン列の撤去', () => wrap.remove());
       }
     });
@@ -363,9 +416,9 @@
   }
 
   // MutationObserver の記録のうち、要素が追加されたものがあるか。投稿欄が新しく出た可能性があるのはこのときだけ
-  // （削除だけ・文字だけの変化では走査しない）。1 は Node.ELEMENT_NODE
+  // （削除だけ・文字だけの変化では走査しない）
   function hasAddedElement(records) {
-    return records.some((r) => Array.prototype.some.call(r.addedNodes, (n) => n.nodeType === 1));
+    return records.some((r) => Array.prototype.some.call(r.addedNodes, (n) => n.nodeType === ELEMENT_NODE));
   }
 
   // 変更が連続しても 1 フレームに 1 回だけ走査する
