@@ -46,9 +46,18 @@
   const VISIBILITY_CHANGE_ACTION = 'compose/visibility_change';
   const SET_QUOTE_POLICY_ACTION = 'compose/setQuotePolicy';
 
+  // 選択肢を移るキーと、移る向き（1 は次、-1 は前）。radiogroup の決まり（WAI-ARIA）どおり、↑↓ も ←→ と同じに扱う。
+  // テストが使う arrowStep から参照するので、下の分岐より前で宣言する
+  const ARROW_STEPS = new Map([
+    ['ArrowRight', 1],
+    ['ArrowDown', 1],
+    ['ArrowLeft', -1],
+    ['ArrowUp', -1],
+  ]);
+
   // node のテスト（test/）から読み込まれたときは、DOM に触れない判定の関数だけを渡す
   if (typeof document === 'undefined') {
-    module.exports = { VISIBILITY, QUOTE, groupStates, hasKnownValues, findVisibilityButton, needsRead, hasAddedElement };
+    module.exports = { VISIBILITY, QUOTE, groupStates, hasKnownValues, findVisibilityButton, needsRead, hasAddedElement, arrowStep };
     return;
   }
 
@@ -90,7 +99,9 @@
   // 差し込むボタン列の外枠のクラス。下の CSS の .tm-vis-wrap と合わせる
   const WRAP_CLASS = 'tm-vis-wrap';
 
-  // 枠と文字色は Mastodon 本体のボタンの .dropdown-button を借り、中のボタンは currentColor 基準で塗る
+  // 枠と文字色は Mastodon 本体のボタンの .dropdown-button を借り、中のボタンは currentColor 基準で塗る。
+  // 本家のボタンは、ここの CSS（.tm-vis-wrap + button.dropdown-button）と、hideOriginalButton のインラインの style の
+  // 2 通りで隠す。addStyle の 2 つの方法がどちらも効かず、CSS が当たらないときでも隠れるようにするため
   const style = document.createElement('style');
   style.textContent = `
     .compose-form__dropdowns > .tm-vis-wrap { display: contents !important; }
@@ -219,15 +230,20 @@
     return button;
   }
 
-  // ←→キーで隣の選択肢へ移り、そのまま選ぶ。端の先は反対の端に回る
+  // キーで移る向き（ARROW_STEPS）。選択肢を移るキーでなければ 0
+  function arrowStep(key) {
+    return ARROW_STEPS.get(key) || 0;
+  }
+
+  // ←→↑↓キーで隣の選択肢へ移り、そのまま選ぶ。端の先は反対の端に回る
   function handleArrowKey(group, e) {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const step = arrowStep(e.key);
+    if (step === 0) return;
     const buttons = [...group.querySelectorAll('button:not(:disabled)')];
     const focusedIndex = buttons.indexOf(document.activeElement);
     if (focusedIndex < 0) return;
 
     e.preventDefault();
-    const step = e.key === 'ArrowRight' ? 1 : -1;
     const next = buttons[(focusedIndex + step + buttons.length) % buttons.length];
     next.focus();
     next.click();
@@ -251,7 +267,11 @@
       warnNoButtonOnce();
       return;
     }
-    if (!connectStore(form)) return;
+    // 停止した後は stop が知らせ済みなので、store が見つからないときだけ知らせる
+    if (!connectStore(form)) {
+      if (!stopped) warnNoStoreOnce();
+      return;
+    }
 
     const wrap = buildWrap();
     // 状態を反映できてから本家のボタンを隠す。反映できなければ本家のボタンのままにする
@@ -274,6 +294,16 @@
     if (warnedNoButton) return;
     warnedNoButton = true;
     console.warn('[tm-vis] 本家の公開範囲ボタンが見つからないため、ボタン列を出しません');
+  }
+
+  // 本家の Redux store が見つからなかったことを、コンソールに知らせたか（知らせるのは 1 回だけ）。
+  // 本家が React の内部の名前（__reactFiber$）を変えたときなどに起きる
+  let warnedNoStore = false;
+
+  function warnNoStoreOnce() {
+    if (warnedNoStore) return;
+    warnedNoStore = true;
+    console.warn('[tm-vis] 本家の投稿欄の状態（Redux store）が見つからないため、ボタン列を出しません');
   }
 
   function buildWrap() {
